@@ -4,30 +4,40 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+env:
+  ACR_NAME: contregstreamlit
+  IMAGE_NAME: streamlit_app
+  WEBAPP_NAME: webappstreamlit
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
+
     - name: Checkout repository
       uses: actions/checkout@v3
 
     - name: Login to Azure Container Registry
-      run: |
-        az acr login --name ${{ secrets.ACR_NAME }}
+      run: echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ env.ACR_NAME }}.azurecr.io -u "${{ secrets.ACR_USERNAME }}" --password-stdin
 
-    - name: Build and Push Docker Image
+    - name: Build and tag Docker image
       run: |
-        docker build -t ${{ secrets.ACR_NAME }}.azurecr.io/streamlit_app:${{ github.sha }} .
-        docker push ${{ secrets.ACR_NAME }}.azurecr.io/streamlit_app:${{ github.sha }}
+        docker build -t ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} .
+        docker tag ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest
+
+    - name: Push Docker image to ACR
+      run: |
+        docker push ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        docker push ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest
 
     - name: Deploy to Azure Web App
-      run: |
-        az webapp config container set --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-          --name ${{ secrets.WEBAPP_NAME }} \
-          --docker-custom-image-name ${{ secrets.ACR_NAME }}.azurecr.io/streamlit_app:${{ github.sha }} \
-          --docker-registry-server-url https://${{ secrets.ACR_NAME }}.azurecr.io
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ env.WEBAPP_NAME }}
+        images: ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest
 
-    - name: Restart Web App
-      run: az webapp restart --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} --name ${{ secrets.WEBAPP_NAME }}
+    - name: Restart Azure Web App
+      run: az webapp restart --name ${{ env.WEBAPP_NAME }} --resource-group SAVOURE_E34
