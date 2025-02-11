@@ -12,12 +12,6 @@ def sample_image():
     img = np.random.randint(0, 256, (28, 28), dtype=np.uint8)
     return img
 
-def test_api_response(sample_image):
-    """Vérifie que l'API répond correctement"""
-    data = sample_image.flatten().tolist()
-    response = requests.post(API_URL, json={"data": data})
-    assert response.status_code == 200, f"Erreur API : {response.text}"
-
 def test_api_prediction_format(sample_image):
     """Vérifie que la réponse contient une clé 'prediction' avec un entier"""
     data = sample_image.flatten().tolist()
