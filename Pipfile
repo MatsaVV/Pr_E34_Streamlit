@@ -9,6 +9,8 @@ requests = "*"
 numpy = "*"
 pillow = "*"
 streamlit-drawable-canvas = "*"
+loguru = "*"
+python-dotenv = "*"
 
 [dev-packages]
 pytest = "*"
