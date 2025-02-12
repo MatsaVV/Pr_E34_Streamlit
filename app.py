@@ -23,7 +23,6 @@ menu = st.sidebar.selectbox("📌 Menu", ["Dessin", "Image aléatoire", "📊 St
 def predict_image(image):
     """ Envoie l'image à l'API FastAPI et retourne la prédiction """
     image = np.array(image).astype("float32").flatten().tolist()  # Conversion en liste
-
     headers = {"x-token": API_KEY}  # Ajout du token d'authentification
 
     try:
@@ -121,18 +120,28 @@ elif menu == "Image aléatoire":
 
 # Mode "Statistiques" - Voir les performances du modèle
 elif menu == "📊 Statistiques":
-    st.header("📊 Suivi des performances du modèle")
+    st.header("📊 Suivi des feedbacks enregistrés")
 
     response = requests.get(f"{API_URL}/feedback_stats", headers={"x-token": API_KEY})
+
+    # ✅ Ajout de cette ligne pour voir la réponse de l'API en cas d'erreur
+    st.write("📡 Réponse API :", response.json())
+
     if response.status_code == 200:
         stats = response.json()
 
         st.write("### ✅ Prédictions Correctes")
-        for row in stats["correct_counts"]:
-            st.write(f"Chiffre {row['prediction']} : {row['count']} validations correctes")
+        if stats.get("correct_counts", []):  # Vérifie si la clé existe et n'est pas vide
+            for row in stats["correct_counts"]:
+                st.write(f"Chiffre {row['prediction']} : {row['count']} validations correctes")
+        else:
+            st.write("Aucune prédiction correcte enregistrée.")
 
         st.write("### ❌ Prédictions Incorrectes")
-        for row in stats["incorrect_counts"]:
-            st.write(f"Chiffre {row['prediction']} : {row['count']} erreurs signalées")
+        if stats.get("incorrect_counts", []):  # Vérifie si la clé existe et n'est pas vide
+            for row in stats["incorrect_counts"]:
+                st.write(f"Chiffre {row['prediction']} : {row['count']} erreurs signalées")
+        else:
+            st.write("Aucune erreur signalée.")
     else:
-        st.error("Impossible de récupérer les statistiques.")
+        st.error("Impossible de récupérer les feedbacks.")
