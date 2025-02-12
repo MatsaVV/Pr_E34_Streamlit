@@ -10,20 +10,32 @@ from dotenv import load_dotenv
 # Charger les variables d'environnement
 load_dotenv()
 API_URL = "https://webappfastapi-faazh4eya0gnamew.westeurope-01.azurewebsites.net"
-API_KEY = os.getenv("API_KEY", "default_token")  # Récupération du token sécurisé
+API_KEY = os.getenv("API_KEY", "default_token")  # Token sécurisé
 
 # Configurer les logs
 logger.add("logs/streamlit_app.log", rotation="1 day", level="INFO")
 
-# Interface Streamlit
+# Initialiser Streamlit
 st.title("📝 Reconnaissance de chiffres manuscrits")
 
 menu = st.sidebar.selectbox("📌 Menu", ["Dessin", "Image aléatoire", "📊 Statistiques"])
 
+# Ajouter une variable de session pour empêcher les multiples soumissions
+if "prediction_requested" not in st.session_state:
+    st.session_state.prediction_requested = False
+
+
 def predict_image(image):
     """ Envoie l'image à l'API FastAPI et retourne la prédiction """
-    image = np.array(image).astype("float32").flatten().tolist()  # Conversion en liste
-    headers = {"x-token": API_KEY}  # Ajout du token d'authentification
+    image = np.array(image).astype("float32").flatten().tolist()
+
+    headers = {"x-token": API_KEY}
+
+    if st.session_state.prediction_requested:
+        logger.warning("⚠️ Requête déjà envoyée, en attente de réponse...")
+        return None
+
+    st.session_state.prediction_requested = True  # Bloque les multiples requêtes
 
     try:
         response = requests.post(f"{API_URL}/predict", json={"data": image}, headers=headers)
@@ -34,36 +46,48 @@ def predict_image(image):
             logger.info(f"✅ Réponse API : {prediction}")
             return prediction
         elif response.status_code == 401:
-            logger.warning("❌ Erreur 401 : Authentification échouée")
             st.error("❌ Erreur d'authentification : Token invalide ou manquant.")
         elif response.status_code == 400:
-            logger.warning("⚠️ Erreur 400 : Données invalides")
             st.warning("⚠️ Données invalides : Veuillez dessiner un chiffre correct.")
         else:
-            logger.error(f"🚨 Erreur inattendue : {response.json()}")
             st.error(f"🚨 Erreur inattendue : {response.json()}")
 
     except requests.exceptions.RequestException as e:
-        logger.error(f"🌐 Erreur de connexion : {e}")
         st.error(f"🌐 Erreur de connexion à l'API : {e}")
+        logger.error(f"🌐 Erreur de connexion à l'API : {e}")
 
-    return None  # Retourne None en cas d'erreur
+    finally:
+        st.session_state.prediction_requested = False  # Réactive après la réponse
+
+    return None
+
 
 def send_feedback(image_data, prediction, correct):
     """ Envoie le feedback à l’API FastAPI """
     headers = {"x-token": API_KEY}
     data = {"image_data": str(image_data), "prediction": prediction, "correct": correct}
 
+    logger.info(f"🟢 Tentative d'envoi du feedback : {data}")
+
     try:
         response = requests.post(f"{API_URL}/feedback", json=data, headers=headers)
+
+        logger.info(f"📡 Statut HTTP : {response.status_code}")
+        logger.info(f"📡 Réponse API : {response.text}")
+
         if response.status_code == 200:
             st.success("✅ Feedback enregistré avec succès !")
+            logger.info("✅ Enregistrement du feedback réussi !")
         else:
-            st.error("❌ Erreur lors de l’enregistrement du feedback.")
+            error_msg = response.json().get("detail", "Erreur inconnue")
+            st.error(f"❌ Erreur API : {error_msg}")
+            logger.error(f"❌ Erreur lors de l’envoi du feedback : {error_msg}")
+
     except requests.exceptions.RequestException as e:
         st.error(f"🌐 Erreur de connexion à l’API : {e}")
+        logger.error(f"🌐 Erreur de connexion à l’API : {e}")
 
-# Mode "Dessin" - Dessiner un chiffre à prédire
+
 if menu == "Dessin":
     st.header("🎨 Dessinez un chiffre")
 
@@ -96,13 +120,13 @@ if menu == "Dessin":
                     if st.button("❌ Incorrect"):
                         send_feedback(img.tolist(), prediction, 0)
 
-# Mode "Image aléatoire" - Tester avec une image générée
+
 elif menu == "Image aléatoire":
     st.header("🖼️ Prédiction sur une image aléatoire")
 
     if st.button("🎲 Charger une image aléatoire"):
         index = np.random.randint(0, 1000)
-        image = np.random.rand(28, 28) * 255  # Image aléatoire (à remplacer par des vraies images)
+        image = np.random.rand(28, 28) * 255
         st.image(image, width=150, caption="🖼️ Image générée")
 
         prediction = predict_image(image)
@@ -118,30 +142,20 @@ elif menu == "Image aléatoire":
                 if st.button("❌ Incorrect", key="incorrect_random"):
                     send_feedback(image.tolist(), prediction, 0)
 
-# Mode "Statistiques" - Voir les performances du modèle
+
 elif menu == "📊 Statistiques":
-    st.header("📊 Suivi des feedbacks enregistrés")
+    st.header("📊 Suivi des performances du modèle")
 
     response = requests.get(f"{API_URL}/feedback_stats", headers={"x-token": API_KEY})
-
-    # ✅ Ajout de cette ligne pour voir la réponse de l'API en cas d'erreur
-    st.write("📡 Réponse API :", response.json())
-
     if response.status_code == 200:
         stats = response.json()
 
         st.write("### ✅ Prédictions Correctes")
-        if stats.get("correct_counts", []):  # Vérifie si la clé existe et n'est pas vide
-            for row in stats["correct_counts"]:
-                st.write(f"Chiffre {row['prediction']} : {row['count']} validations correctes")
-        else:
-            st.write("Aucune prédiction correcte enregistrée.")
+        for row in stats["correct_counts"]:
+            st.write(f"Chiffre {row['prediction']} : {row['count']} validations correctes")
 
         st.write("### ❌ Prédictions Incorrectes")
-        if stats.get("incorrect_counts", []):  # Vérifie si la clé existe et n'est pas vide
-            for row in stats["incorrect_counts"]:
-                st.write(f"Chiffre {row['prediction']} : {row['count']} erreurs signalées")
-        else:
-            st.write("Aucune erreur signalée.")
+        for row in stats["incorrect_counts"]:
+            st.write(f"Chiffre {row['prediction']} : {row['count']} erreurs signalées")
     else:
-        st.error("Impossible de récupérer les feedbacks.")
+        st.error("Impossible de récupérer les statistiques.")
